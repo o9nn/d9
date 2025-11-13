@@ -15,7 +15,8 @@ import (
 )
 
 func main() {
-	fmt.Println("=== AtomSpace as DgraphSpace Demo ===\n")
+	fmt.Println("=== AtomSpace as DgraphSpace Demo ===")
+	fmt.Println()
 
 	// Create a new AtomSpace
 	ctx := context.Background()
