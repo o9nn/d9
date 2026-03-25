@@ -63,7 +63,8 @@ func NewDgraphSpace(ctx context.Context) *DgraphSpace {
 	}
 }
 
-// AddNode adds a node atom to the space
+// AddNode adds a node atom to the space.
+// For NumberNode atoms use AddNumberNode instead.
 func (ds *DgraphSpace) AddNode(atomType AtomType, name string) (Atom, error) {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
@@ -77,6 +78,26 @@ func (ds *DgraphSpace) AddNode(atomType AtomType, name string) (Atom, error) {
 	// Create new node
 	node := NewNode(atomType, name)
 	ds.atoms[node.GetID()] = node
+	ds.nodes[key] = node
+
+	return node, nil
+}
+
+// AddNumberNode adds a NumberNode atom to the space.
+func (ds *DgraphSpace) AddNumberNode(value float64) (*NumberNode, error) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	node := NewNumberNode(value)
+	key := node.GetID()
+
+	if existing, ok := ds.nodes[key]; ok {
+		if n, ok2 := existing.(*NumberNode); ok2 {
+			return n, nil
+		}
+	}
+
+	ds.atoms[key] = node
 	ds.nodes[key] = node
 
 	return node, nil
@@ -187,8 +208,11 @@ func (ds *DgraphSpace) RemoveAtom(id string) error {
 	delete(ds.atoms, id)
 
 	// If it's a node, remove from nodes map
-	if node, ok := atom.(*Node); ok {
-		key := generateID(node.GetType(), node.Name)
+	switch n := atom.(type) {
+	case *NumberNode:
+		delete(ds.nodes, n.GetID())
+	case *Node:
+		key := generateID(n.GetType(), n.Name)
 		delete(ds.nodes, key)
 	}
 
@@ -241,12 +265,13 @@ func (ds *DgraphSpace) MarshalJSON() ([]byte, error) {
 	defer ds.mu.RUnlock()
 
 	type atomData struct {
-		ID           string                 `json:"id"`
-		Type         string                 `json:"type"`
-		Name         string                 `json:"name,omitempty"`
-		Outgoing     []string               `json:"outgoing,omitempty"`
-		TruthValue   *TruthValue            `json:"truthValue"`
-		AttentionValue *AttentionValue      `json:"attentionValue"`
+		ID             string          `json:"id"`
+		Type           string          `json:"type"`
+		Name           string          `json:"name,omitempty"`
+		Value          *float64        `json:"value,omitempty"`
+		Outgoing       []string        `json:"outgoing,omitempty"`
+		TruthValue     *TruthValue     `json:"truthValue"`
+		AttentionValue *AttentionValue `json:"attentionValue"`
 	}
 
 	atoms := make([]atomData, 0, len(ds.atoms))
@@ -258,11 +283,16 @@ func (ds *DgraphSpace) MarshalJSON() ([]byte, error) {
 			AttentionValue: atom.GetAttentionValue(),
 		}
 
-		if node, ok := atom.(*Node); ok {
-			data.Name = node.Name
-		} else if link, ok := atom.(*Link); ok {
-			outgoing := make([]string, len(link.Outgoing))
-			for i, out := range link.Outgoing {
+		switch a := atom.(type) {
+		case *NumberNode:
+			data.Name = a.Name
+			v := a.Value
+			data.Value = &v
+		case *Node:
+			data.Name = a.Name
+		case *Link:
+			outgoing := make([]string, len(a.Outgoing))
+			for i, out := range a.Outgoing {
 				outgoing[i] = out.GetID()
 			}
 			data.Outgoing = outgoing
@@ -275,4 +305,86 @@ func (ds *DgraphSpace) MarshalJSON() ([]byte, error) {
 		"atoms": atoms,
 		"size":  len(ds.atoms),
 	})
+}
+
+// atomJSON is the shape of a single atom entry used for JSON round-tripping.
+type atomJSON struct {
+	ID             string          `json:"id"`
+	Type           string          `json:"type"`
+	Name           string          `json:"name,omitempty"`
+	Value          *float64        `json:"value,omitempty"`
+	Outgoing       []string        `json:"outgoing,omitempty"`
+	TruthValue     *TruthValue     `json:"truthValue"`
+	AttentionValue *AttentionValue `json:"attentionValue"`
+}
+
+// UnmarshalJSON deserializes an AtomSpace from JSON produced by MarshalJSON.
+// Existing atoms are cleared before loading.
+func (ds *DgraphSpace) UnmarshalJSON(data []byte) error {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	var raw struct {
+		Atoms []atomJSON `json:"atoms"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	// Reset space
+	ds.atoms = make(map[string]Atom)
+	ds.nodes = make(map[string]Atom)
+	ds.incoming = make(map[string][]string)
+
+	// First pass: restore all node atoms (links reference nodes by ID)
+	for _, a := range raw.Atoms {
+		if len(a.Outgoing) > 0 {
+			continue // link – handle in second pass
+		}
+		atomType := AtomType(a.Type)
+		var atom Atom
+		if a.Value != nil {
+			nn := NewNumberNode(*a.Value)
+			atom = nn
+		} else {
+			atom = NewNode(atomType, a.Name)
+		}
+		if a.TruthValue != nil {
+			atom.SetTruthValue(a.TruthValue)
+		}
+		if a.AttentionValue != nil {
+			atom.SetAttentionValue(a.AttentionValue)
+		}
+		ds.atoms[atom.GetID()] = atom
+		ds.nodes[atom.GetID()] = atom
+	}
+
+	// Second pass: restore link atoms
+	for _, a := range raw.Atoms {
+		if len(a.Outgoing) == 0 {
+			continue
+		}
+		outgoing := make([]Atom, 0, len(a.Outgoing))
+		for _, outID := range a.Outgoing {
+			out, ok := ds.atoms[outID]
+			if !ok {
+				return fmt.Errorf("outgoing atom %s not found during deserialization", outID)
+			}
+			outgoing = append(outgoing, out)
+		}
+		link := NewLink(AtomType(a.Type), outgoing)
+		if a.TruthValue != nil {
+			link.SetTruthValue(a.TruthValue)
+		}
+		if a.AttentionValue != nil {
+			link.SetAttentionValue(a.AttentionValue)
+		}
+		ds.atoms[link.GetID()] = link
+		for _, out := range outgoing {
+			outID := out.GetID()
+			ds.incoming[outID] = append(ds.incoming[outID], link.GetID())
+		}
+	}
+
+	return nil
 }

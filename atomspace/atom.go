@@ -17,16 +17,50 @@ const (
 	NodeType AtomType = "Node"
 	// LinkType represents a link atom (connects other atoms)
 	LinkType AtomType = "Link"
+
+	// --- Node types ---
+
 	// ConceptNodeType represents a concept node
 	ConceptNodeType AtomType = "ConceptNode"
 	// PredicateNodeType represents a predicate node
 	PredicateNodeType AtomType = "PredicateNode"
+	// NumberNodeType represents a numeric constant node
+	NumberNodeType AtomType = "NumberNode"
+	// VariableNodeType represents an unbound variable in patterns
+	VariableNodeType AtomType = "VariableNode"
+	// SchemaNodeType represents a schema (procedural) node
+	SchemaNodeType AtomType = "SchemaNode"
+	// GroundedSchemaNodeType represents an executable (grounded) schema node
+	GroundedSchemaNodeType AtomType = "GroundedSchemaNode"
+
+	// --- Link types ---
+
 	// InheritanceLinkType represents an inheritance relationship
 	InheritanceLinkType AtomType = "InheritanceLink"
 	// SimilarityLinkType represents a similarity relationship
 	SimilarityLinkType AtomType = "SimilarityLink"
-	// EvaluationLinkType represents an evaluation
+	// EvaluationLinkType represents a predicate evaluation
 	EvaluationLinkType AtomType = "EvaluationLink"
+	// MemberLinkType represents set membership
+	MemberLinkType AtomType = "MemberLink"
+	// ListLinkType represents an ordered list of atoms
+	ListLinkType AtomType = "ListLink"
+	// SetLinkType represents an unordered set of atoms
+	SetLinkType AtomType = "SetLink"
+	// AndLinkType represents logical conjunction
+	AndLinkType AtomType = "AndLink"
+	// OrLinkType represents logical disjunction
+	OrLinkType AtomType = "OrLink"
+	// NotLinkType represents logical negation (unary)
+	NotLinkType AtomType = "NotLink"
+	// ImplicationLinkType represents logical implication (if A then B)
+	ImplicationLinkType AtomType = "ImplicationLink"
+	// EquivalenceLinkType represents logical equivalence (A iff B)
+	EquivalenceLinkType AtomType = "EquivalenceLink"
+	// ExecutionLinkType represents execution of a schema
+	ExecutionLinkType AtomType = "ExecutionLink"
+	// ContextLinkType represents a contextual assertion
+	ContextLinkType AtomType = "ContextLink"
 )
 
 // TruthValue represents the truth value of an Atom for uncertain reasoning
@@ -209,6 +243,50 @@ func (l *Link) String() string {
 // GetOutgoing returns the atoms connected by this link
 func (l *Link) GetOutgoing() []Atom {
 	return l.Outgoing
+}
+
+// NumberNode is a Node that also carries a float64 value.
+// Its Name is the canonical decimal representation of Value.
+type NumberNode struct {
+	Node
+	Value float64
+}
+
+// NewNumberNode creates a NumberNode for the given numeric value.
+func NewNumberNode(value float64) *NumberNode {
+	name := fmt.Sprintf("%g", value)
+	return &NumberNode{
+		Node: Node{
+			BaseAtom: BaseAtom{
+				ID:           generateID(NumberNodeType, name),
+				Type:         NumberNodeType,
+				TruthVal:     DefaultTruthValue(),
+				AttentionVal: DefaultAttentionValue(),
+			},
+			Name: name,
+		},
+		Value: value,
+	}
+}
+
+// String returns a string representation of the NumberNode.
+func (n *NumberNode) String() string {
+	return fmt.Sprintf("(%s %g)", n.Type, n.Value)
+}
+
+// IsNode returns true when the atom is a Node (terminal).
+func IsNode(a Atom) bool {
+	switch a.(type) {
+	case *Node, *NumberNode:
+		return true
+	}
+	return false
+}
+
+// IsLink returns true when the atom is a Link.
+func IsLink(a Atom) bool {
+	_, ok := a.(*Link)
+	return ok
 }
 
 // generateID generates a unique ID for a node
