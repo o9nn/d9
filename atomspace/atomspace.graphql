@@ -1,0 +1,48 @@
+# Dgraph GraphQL schema for the AtomSpace implementation.
+#
+# This schema is intended for future use when the in-memory DgraphSpace is
+# replaced by (or augmented with) an actual Dgraph backend.
+#
+# Deploy with:
+#   dgraph schema set -f atomspace.graphql
+
+"""
+Atom is the fundamental unit of the AtomSpace hypergraph.
+Both Node and Link atoms share this base type.
+"""
+type Atom {
+  id: ID!
+
+  """
+  type is the AtomType string, e.g. "ConceptNode", "InheritanceLink".
+  """
+  type: String! @index(exact)
+
+  """
+  name is set for Node atoms; it identifies the concept / predicate / variable.
+  """
+  name: String @index(fulltext, trigram)
+
+  """
+  value is set for NumberNode atoms.
+  """
+  value: Float
+
+  """
+  outgoing is the ordered list of child atoms for Link atoms.
+  """
+  outgoing: [Atom] @dgraph(pred: "outgoing")
+
+  """
+  PLN truth-value components.
+  """
+  truthStrength:   Float
+  truthConfidence: Float
+
+  """
+  ECAN attention-value components.
+  """
+  stiValue:  Int
+  ltiValue:  Int
+  vltiValue: Int
+}
